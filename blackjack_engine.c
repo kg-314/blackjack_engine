@@ -5,7 +5,8 @@
 #include <time.h>
 
 #define DECK_SIZE 52
-#define NUM_DECKS 1
+// May be removed later, as this will be a user-inputed value.
+#define NUM_DECKS 1 // For when this program is extended to allow for shoe with multiple decks
 
 // character values
 typedef struct player {
@@ -19,11 +20,12 @@ typedef struct dealer {
 } Dealer;
 
 static void create_deck(uint8_t **deck);
-static void engine(uint8_t *cards, Player *player, Dealer *dealer);
-static void shuffle(uint8_t *cards);
+static void engine(uint8_t *cards, Player *player, Dealer *dealer, int numCards);
+static void shuffle(uint8_t *cards, int numCards);
 
 // Currently main for testing, will be turning into setup(bool automate)
 // so that other programs can call to start a game
+// May call it load_engine later, or even start_engine()
 int main(int argc, char **argv) {
     uint8_t *cards = NULL;
     create_deck(&cards);
@@ -40,9 +42,22 @@ int main(int argc, char **argv) {
     Dealer *dealer = (Dealer *) calloc(1, sizeof(Dealer));
 
     srand(time(NULL));
-    shuffle(cards);
+    int numCards = DECK_SIZE * NUM_DECKS;
+    shuffle(cards, numCards);
 
-    engine(cards, player, dealer);
+    // Randomness Check
+    // for (int i = 0; i < DECK_SIZE; i++) {
+    //     printf("%d ", cards[i]);
+    // }
+    // printf("%s", "\n");
+    // shuffle(cards, numCards);
+
+    // for (int i = 0; i < DECK_SIZE; i++) {
+    //     printf("%d ", cards[i]);
+
+    // }
+
+    engine(cards, player, dealer, numCards);
 
     free(cards);
     free(player); // No internal pointers
@@ -51,7 +66,7 @@ int main(int argc, char **argv) {
 }
 
 // The main function that drives the game
-static void engine(uint8_t *cards, Player *player, Dealer *dealer) {
+static void engine(uint8_t *cards, Player *player, Dealer *dealer, int numCards) {
 
 }
 
@@ -69,15 +84,16 @@ static void create_deck(uint8_t **deck) {
 }
 
 // Shuffles the deck of cards into a random order
-static void shuffle(uint8_t *cards) {
-    // I need an algorithm to take an array of NULL values and fill with numbers
-    // to represent the cards. No repeats allowed, all cards used, positions cannot 
-    // It needs to randomly sort the numbers in the array.
+static void shuffle(uint8_t *cards, int numCards) {
+    // Fisher-Yates Algo for shuffling deck.
+    if (numCards > 1) { // Should always be true.
+        for (int i = numCards - 1; i > 0; i--) {
+            int j = rand() % (i + 1);
 
-    // The array does not necessarily have to be null to begin with though.
+            uint8_t tempCard = cards[i];
+            cards[i] = cards[j];
+            cards[j] = tempCard;
+        }
+    }
 
-    int r = rand();
-    printf("%d%s", r%52, "\n");
-    r = rand();
-    printf("%d%s", r%52, "\n");
 }
