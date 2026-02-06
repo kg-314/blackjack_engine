@@ -2,9 +2,12 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <time.h>
 
 #define DECK_SIZE 52
+#define NUM_DECKS 1
 
+// character values
 typedef struct player {
     int money;
     int hand;
@@ -15,8 +18,9 @@ typedef struct dealer {
     int hand;
 } Dealer;
 
-void create_deck(uint8_t **deck);
-void engine(uint8_t *cards, Player *player, Dealer *dealer);
+static void create_deck(uint8_t **deck);
+static void engine(uint8_t *cards, Player *player, Dealer *dealer);
+static void shuffle(uint8_t *cards);
 
 // Currently main for testing, will be turning into setup(bool automate)
 // so that other programs can call to start a game
@@ -34,6 +38,9 @@ int main(int argc, char **argv) {
 
     // Create dealer
     Dealer *dealer = (Dealer *) calloc(1, sizeof(Dealer));
+
+    srand(time(NULL));
+    shuffle(cards);
 
     engine(cards, player, dealer);
 
@@ -63,5 +70,14 @@ static void create_deck(uint8_t **deck) {
 
 // Shuffles the deck of cards into a random order
 static void shuffle(uint8_t *cards) {
+    // I need an algorithm to take an array of NULL values and fill with numbers
+    // to represent the cards. No repeats allowed, all cards used, positions cannot 
+    // It needs to randomly sort the numbers in the array.
 
+    // The array does not necessarily have to be null to begin with though.
+
+    int r = rand();
+    printf("%d%s", r%52, "\n");
+    r = rand();
+    printf("%d%s", r%52, "\n");
 }
