@@ -4,20 +4,11 @@
 #include <stdbool.h>
 #include <time.h>
 
+#include "blackjack_engine.h"
+
 #define DECK_SIZE 52
 // May be removed later, as this will be a user-inputed value.
 #define NUM_DECKS 1 // For when this program is extended to allow for shoe with multiple decks
-
-// character values
-typedef struct player {
-    int money;
-    int hand;
-} Player;
-
-typedef struct dealer {
-    int showing;
-    int hand;
-} Dealer;
 
 static void create_deck(uint8_t **deck);
 static void engine(uint8_t *cards, Player *player, Dealer *dealer, int numCards);
@@ -26,7 +17,7 @@ static void shuffle(uint8_t *cards, int numCards);
 // Currently main for testing, will be turning into setup(bool automate)
 // so that other programs can call to start a game
 // May call it load_engine later, or even start_engine()
-int main(int argc, char **argv) {
+int start_engine() {
     uint8_t *cards = NULL;
     create_deck(&cards);
     if (cards == NULL) {
@@ -67,7 +58,41 @@ int main(int argc, char **argv) {
 
 // The main function that drives the game
 static void engine(uint8_t *cards, Player *player, Dealer *dealer, int numCards) {
+    // Deck will be shuffled whenever at least 31 cards have been used (single deck).
 
+    // Some basic functions are needed for the operation of blackjack.
+    // dealCard() -- Deals a card to the active player
+    // changeTurns() -- changes the active player (switch between player and dealer)
+    // checkBust() -- check if player/dealer busted from card dealt.
+    // payout() -- pay player if they win
+    // bet() -- how much money you want to bet before a round starts
+    // startRound() and finishRound()
+    // doubleDown() -- triggers everything that follows from doubling down
+    // buyInsurance()
+    // evenMoney()
+
+    // Player called functions:
+    // hit()
+    // bet()
+    // doubleDown()
+    // buyInsurance()
+    // evenMoney()
+    // quit()
+
+    // Step 1: Query the player for how much they want to bet.
+    // Engine needs to send some kind of askBet signal to user interface.
+    for (int i = 0; i < DECK_SIZE; i++) {
+        printf("%d ", cards[i]);
+    }
+    printf("%s", "\n");
+    shuffle(cards, numCards);
+
+    for (int i = 0; i < DECK_SIZE; i++) {
+        printf("%d ", cards[i]);
+
+    }
+
+    // Game should end if player reaches 0 money or player quits.
 }
 
 static void create_deck(uint8_t **deck) {
