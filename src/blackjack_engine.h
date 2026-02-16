@@ -1,3 +1,4 @@
+#define DECK_SIZE 52
 
 // character values
 struct Player {
@@ -7,8 +8,30 @@ struct Player {
 };
 
 struct Dealer {
-    int showing;
+    int show_card;
     int hand;
+};
+
+enum Type {
+    TYPE_P,
+    TYPE_D
+};
+
+struct Character {
+    enum Type type;
+    union {
+        struct Player p;
+        struct Dealer d;
+    } data;
+};
+
+/*
+All changes to player states will be controlled through the game state.
+*/
+struct GameState {
+    int curr_player;
+    int num_players;
+    struct Character *players;
 };
 
 // struct GameState {
@@ -21,5 +44,5 @@ struct Dealer {
 extern struct Player *player;
 extern struct Dealer *dealer;
 
-int start_engine(int player_money);
+int start_engine(int player_money, int num_players);
 int stop_engine();
