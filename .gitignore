@@ -1,0 +1,5 @@
+# Ignore specific compiled binaries
+test_hand
+test_hand.exe
+test_engine
+test_engine.exe
