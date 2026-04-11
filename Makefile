@@ -6,6 +6,8 @@ SRC = src/blackjack_engine.c
 TEST_HAND = test/test_hand
 TEST_ENGINE = test/test_engine
 
+.PHONY: all test clean
+
 all: test
 
 test: $(TEST_HAND) $(TEST_ENGINE)
