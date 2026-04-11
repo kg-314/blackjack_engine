@@ -1,3 +1,12 @@
+#ifndef BLACKJACK_ENGINE_H
+#define BLACKJACK_ENGINE_H
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <time.h>
+
 #define DECK_SIZE 52
 #define MAX_HAND 12  // worst case (all aces)
 
@@ -63,5 +72,19 @@ struct GameState {
 extern struct Player *player;
 extern struct Dealer *dealer;
 
+// Prototypes
 int start_engine(int player_money, int num_players);
 int stop_engine();
+void deal(int initial_bet);
+int hit();
+void stand();
+void double_down();
+void buy_insurance();
+void even_money();
+
+// Prototypes for testing
+uint8_t draw_card();
+void add_card(Hand *h, uint8_t card);
+int get_hand_value(Hand *h);
+
+#endif // BLACKJACK_ENGINE_H

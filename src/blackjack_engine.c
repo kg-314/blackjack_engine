@@ -1,9 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <time.h>
-
 #include "blackjack_engine.h"
 
 // May be removed later, as this will be a user-inputed value.
@@ -16,14 +10,10 @@ uint8_t *cards;
 
 static void create_deck(uint8_t **deck);
 static void shuffle(uint8_t *cards, int num_cards);
-void deal(int initial_bet);
+
 // void bet(int amount);
-int hit();
-void stand();
+
 static void changeTurn();
-void double_down();
-void buy_insurance();
-void even_money();
 // static bool checkBust();
 static void computeWin();
 
