@@ -38,6 +38,8 @@ struct GameState *engine_create(int player_money, int num_players) {
     game->num_players = num_players;
     game->deck_pos = 0;
     game->players = malloc(sizeof(struct Character) * num_players);
+    game->test_mode = false;
+    game->test_size = 0;
 
     if (game->players == NULL) {
         free(game->cards);
@@ -113,22 +115,24 @@ static void changeTurn(struct GameState *game) {
     if (game->curr_player == game->num_players - 1) {
         struct Character *dealer = &game->players[game->curr_player];
 
-        while (get_hand_value(&dealer->data.d.hand) < 17) {
-            add_card(&dealer->data.d.hand, draw_card(game));
+        // dealer does not auto-draw if test mode is true.
+        if (game->test_mode == false) {
+            while (get_hand_value(&dealer->data.d.hand) < 17) {
+                add_card(&dealer->data.d.hand, draw_card(game));
+            }
         }
 
         computeWin(game);
     }
 }
 
-/* 
-Every time a hit occurs, it should be checked 
-if the hit taker busted. 
-*/
-// static bool checkBust() {
-
-// }
-// hit() now does checkBust() function.
+/* Test function to control dealer draw. */
+void test_dealer_draw(struct GameState *game) {
+    struct Character *dealer = &game->players[game->num_players - 1];
+    while (get_hand_value(&dealer->data.d.hand) < 17) {
+        add_card(&dealer->data.d.hand, draw_card(game));
+    }
+}
 
 /*
 At the end of each hand (when the dealer stands or busts),
@@ -156,47 +160,6 @@ static void computeWin(struct GameState *game) {
     }
 }
 
-// The main function that drives the game.
-// Engine should evaluate an input from the user interface,
-// and take the associated action.
-// static void engine(uint8_t *cards, struct Player *player, struct Dealer *dealer, int numCards) {
-//     // Deck will be shuffled whenever at least 31 cards have been used (single deck).
-
-//     // Some basic functions are needed for the operation of blackjack.
-//     // dealCard() -- Deals a card to the active player
-//     // changeTurns() -- changes the active player (switch between player and dealer)
-//     // checkBust() -- check if player/dealer busted from card dealt.
-//     // payout() -- pay player if they win
-//     // bet() -- how much money you want to bet before a round starts
-//     // startRound() and finishRound()
-//     // doubleDown() -- triggers everything that follows from doubling down
-//     // buyInsurance()
-//     // evenMoney()
-
-//     // Player called functions:
-//     // hit()
-//     // bet()
-//     // doubleDown()
-//     // buyInsurance()
-//     // evenMoney()
-//     // quit()
-
-//     // Step 1: Query the player for how much they want to bet.
-//     // Engine needs to send some kind of askBet signal to user interface.
-//     for (int i = 0; i < DECK_SIZE; i++) {
-//         printf("%d ", cards[i]);
-//     }
-//     printf("%s", "\n");
-//     shuffle(cards, numCards);
-
-//     for (int i = 0; i < DECK_SIZE; i++) {
-//         printf("%d ", cards[i]);
-
-//     }
-
-//     // Game should end if player reaches 0 money or player quits.
-// }
-
 /* 
 Creates a deck of cards.
 Future functionality will be a shoe with multiple decks. 
@@ -209,6 +172,33 @@ static void create_deck(uint8_t **deck) {
     for (int i = 0; i < DECK_SIZE; i++) {
         (*deck)[i] = i & 0xFF;
     }
+}
+
+/*
+A test function to have deterministic deck.
+*/
+void engine_set_deck(struct GameState *game, uint8_t *deck, int size) {
+    if (!game) return;
+
+    if (game->cards) {
+        free(game->cards);
+    }
+
+    game->cards = malloc(sizeof(uint8_t) * size);
+    if (game->cards == NULL) {
+        free(game->players);
+        free(game);
+        fprintf(stderr, "Test deck creation failed.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    for (int i = 0; i < size; i++) {
+        game->cards[i] = deck[i];
+    }
+
+    game->deck_pos = 0;
+    game->test_mode = true;
+    game->test_size = size;
 }
 
 /* 
@@ -268,7 +258,15 @@ void deal(struct GameState *game, int initial_bet) {
 Helper function that draws a card from the deck and reshuffles if deck (shoe) is empty.
 */
 uint8_t draw_card(struct GameState *game) {
-    if (game->deck_pos >= DECK_SIZE * NUM_DECKS) {
+    if (game->test_mode) {
+        if (game->deck_pos >= game->test_size) {
+            fprintf(stderr, "Test deck out of cards!\n");
+            free(game->players);
+            free(game->cards);
+            free(game);
+            exit(EXIT_FAILURE);
+        }
+    } else if (game->deck_pos >= DECK_SIZE * NUM_DECKS) {
         shuffle(game->cards, DECK_SIZE * NUM_DECKS);
         game->deck_pos = 0;
     }

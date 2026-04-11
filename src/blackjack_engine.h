@@ -27,18 +27,6 @@ typedef struct Dealer {
     uint8_t show_card;
 } DealerData;
 
-// character values
-// struct Player {
-//     int money;
-//     int current_bet;
-//     int hand; // Hand just an int because suit does not really matter.
-// };
-
-// struct Dealer {
-//     int show_card;
-//     int hand;
-// };
-
 enum Type {
     TYPE_P,
     TYPE_D
@@ -61,13 +49,9 @@ struct GameState {
     int deck_pos;
     uint8_t *cards;
     struct Character *players;
+    bool test_mode;
+    int test_size;
 };
-
-// struct GameState {
-//     int currentBet;
-//     struct Player *player;
-//     struct Dealer *dealer;
-// };
 
 // "Constructor / Destructor" (Ability to run multiple games at once)
 struct GameState *engine_create(int player_money, int num_players);
@@ -83,20 +67,7 @@ void double_down(struct GameState *game);
 uint8_t draw_card(struct GameState *game);
 void add_card(Hand *h, uint8_t card);
 int get_hand_value(Hand *h);
-
-// // Prototypes
-// int start_engine(int player_money, int num_players);
-// int stop_engine();
-// void deal(int initial_bet);
-// int hit();
-// void stand();
-// void double_down();
-// void buy_insurance();
-// void even_money();
-
-// // Prototypes for testing
-// uint8_t draw_card();
-// void add_card(Hand *h, uint8_t card);
-// int get_hand_value(Hand *h);
+void engine_set_deck(struct GameState *game, uint8_t *deck, int size);
+void test_dealer_draw(struct GameState *game);
 
 #endif // BLACKJACK_ENGINE_H
