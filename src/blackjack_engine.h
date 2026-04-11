@@ -10,7 +10,7 @@ typedef struct Player {
     Hand hand;
     int money;
     int current_bet;
-    bool is_active;   // for bust/stand
+    //bool is_active;   // for bust/stand
 } PlayerData;
 
 typedef struct Dealer {

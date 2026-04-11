@@ -166,7 +166,25 @@ At the end of each hand (when the dealer stands or busts),
 it must be computer who won and they must be paid.
 */
 static void computeWin() {
+    struct Character *dealer = &game->players[game->num_players - 1];
+    int dealer_val = get_hand_value(&dealer->data.d.hand);
 
+    for (int i = 0; i < game->num_players - 1; i++) {
+        struct Character *p = &game->players[i];
+
+        int player_val = get_hand_value(&p->data.p.hand);
+
+        if (player_val > 21) {
+            p->data.p.money -= p->data.p.current_bet;
+        }
+        else if (dealer_val > 21 || player_val > dealer_val) {
+            p->data.p.money += p->data.p.current_bet;
+        }
+        else if (player_val < dealer_val) {
+            p->data.p.money -= p->data.p.current_bet;
+        }
+        // tie → no change
+    }
 }
 
 // The main function that drives the game.
@@ -254,7 +272,7 @@ void deal(int initial_bet) {
     for (int i = 0; i < game->num_players; i++) {
         if (game->players[i].type == TYPE_P) {
             game->players[i].data.p.hand.count = 0;
-            game->players[i].data.p.is_active = true;
+            //game->players[i].data.p.is_active = true;
             game->players[i].data.p.current_bet = initial_bet;
         } else {
             game->players[i].data.d.hand.count = 0;
@@ -318,7 +336,7 @@ int hit() {
         add_card(&curr->data.p.hand, card);
 
         if (get_hand_value(&curr->data.p.hand) > 21) {
-            curr->data.p.is_active = false;
+            //curr->data.p.is_active = false;
             changeTurn();
         }
     } else {
@@ -333,7 +351,18 @@ void stand() {
 }
 
 void double_down() {
+    struct Character *player = &game->players[game->curr_player];
+    
+    // Check if player has enough money.
+    if (player->data.p.money < player->data.p.current_bet) return;
+    
+    // Double bet
+    player->data.p.current_bet *= 2;
 
+    // Take one card
+    add_card(&player->data.p.hand, draw_card());
+
+    changeTurn();
 }
 
 void buy_insurance() {
