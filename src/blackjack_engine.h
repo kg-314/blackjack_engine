@@ -59,6 +59,7 @@ struct GameState {
     int curr_player;
     int num_players;
     int deck_pos;
+    uint8_t *cards;
     struct Character *players;
 };
 
@@ -68,23 +69,34 @@ struct GameState {
 //     struct Dealer *dealer;
 // };
 
-// Global variables that should be accessible by any user interface.
-extern struct Player *player;
-extern struct Dealer *dealer;
+// "Constructor / Destructor" (Ability to run multiple games at once)
+struct GameState *engine_create(int player_money, int num_players);
+void engine_destroy(struct GameState *game);
 
-// Prototypes
-int start_engine(int player_money, int num_players);
-int stop_engine();
-void deal(int initial_bet);
-int hit();
-void stand();
-void double_down();
-void buy_insurance();
-void even_money();
+// Game actions
+void deal(struct GameState *game, int initial_bet);
+int hit(struct GameState *game);
+void stand(struct GameState *game);
+void double_down(struct GameState *game);
 
-// Prototypes for testing
-uint8_t draw_card();
+// Utilities (keep for testing)
+uint8_t draw_card(struct GameState *game);
 void add_card(Hand *h, uint8_t card);
 int get_hand_value(Hand *h);
+
+// // Prototypes
+// int start_engine(int player_money, int num_players);
+// int stop_engine();
+// void deal(int initial_bet);
+// int hit();
+// void stand();
+// void double_down();
+// void buy_insurance();
+// void even_money();
+
+// // Prototypes for testing
+// uint8_t draw_card();
+// void add_card(Hand *h, uint8_t card);
+// int get_hand_value(Hand *h);
 
 #endif // BLACKJACK_ENGINE_H
