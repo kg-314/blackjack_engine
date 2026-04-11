@@ -8,9 +8,9 @@ static void shuffle(uint8_t *cards, int num_cards);
 
 // void bet(int amount);
 
-static void changeTurn();
+static void changeTurn(struct GameState *game);
 // static bool checkBust();
-static void computeWin();
+static void computeWin(struct GameState *game);
 
 // static void engine(uint8_t *cards, struct Player *player, struct Dealer *dealer, int numCards);
 
