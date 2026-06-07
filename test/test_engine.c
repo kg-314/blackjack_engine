@@ -2,7 +2,7 @@
 #include "test_utils.h"
 
 void test_engine_init() {
-    struct GameState *game = engine_create(1000, 1);
+    struct GameState *game = engine_create(1000, 1, 1);
 
     ASSERT_TRUE(game != NULL);
     ASSERT_EQ(game->num_players, 2); // player + dealer
@@ -13,13 +13,13 @@ void test_engine_init() {
 }
 
 void test_hit_increases_hand() {
-    struct GameState *game = engine_create(1000, 1);
+    struct GameState *game = engine_create(1000, 1, 1);
 
     deal(game, 100);
 
     int before = game->players[0].data.p.hand.count;
 
-    hit(game);
+    apply_action(game, ACTION_HIT);
 
     int after = game->players[0].data.p.hand.count;
 
@@ -31,13 +31,13 @@ void test_hit_increases_hand() {
 }
 
 void test_double_down() {
-    struct GameState *game = engine_create(1000, 1);
+    struct GameState *game = engine_create(1000, 1, 1);
 
     deal(game, 100);
 
     int before = game->players[0].data.p.current_bet;
 
-    double_down(game);
+    apply_action(game, ACTION_DOUBLE);
 
     int after = game->players[0].data.p.current_bet;
 
@@ -50,7 +50,7 @@ void test_double_down() {
 
 /* Deterministic engine tests. */
 void test_player_bust() {
-    struct GameState *game = engine_create(1000, 1);
+    struct GameState *game = engine_create(1000, 1, 1);
 
     // Player: 10, 9; Dealer: 6, 7; Player draws 5 and busts.
     uint8_t deck[] = {
@@ -66,20 +66,21 @@ void test_player_bust() {
     // This test was failing here because changeTurn(),
     // which is called when a player busts, calls draw_card(),
     // which was making the engine draw more cards than the test deck had.
-    hit(game); // should bust
+    apply_action(game, ACTION_HIT);  // bust -> phase advances to dealer
     //printf("Made it past hit.\n");
 
     int val = get_hand_value(&game->players[0].data.p.hand);
     //printf("Player hand value: %d\n", val);
 
     ASSERT_TRUE(val > 21);
+    ASSERT_TRUE(game->phase == PHASE_DEALER_TURN); // Make sure it goes to dealer's turn
 
     engine_destroy(game);
     TEST_PASS();
 }
 
 void test_dealer_hits_until_17() {
-    struct GameState *game = engine_create(1000, 1);
+    struct GameState *game = engine_create(1000, 1, 1);
 
     // Player: 19; Dealer: 9; Dealer should hit twice and end with 20.
     uint8_t deck[] = {
@@ -94,9 +95,9 @@ void test_dealer_hits_until_17() {
 
     deal(game, 100);
 
-    stand(game); // player done
+    apply_action(game, ACTION_STAND); // player done
 
-    test_dealer_draw(game); // Dealer should draw until 17
+    resolve_dealer(game); // Dealer should draw until 17
 
     int dealer_val = get_hand_value(&game->players[1].data.d.hand);
 
