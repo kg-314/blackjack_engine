@@ -3,78 +3,72 @@
 // Will be removed later, as this will be a user-inputed value.
 #define NUM_DECKS 1 // For when this program is extended to allow for shoe with multiple decks
 
-static void create_deck(uint8_t **deck);
+static void build_shoe(struct GameState *game, int num_decks);
 static void shuffle(uint8_t *cards, int num_cards, uint64_t *rng_state);
 static void advance_turn(struct GameState *game);
 static void compute_win(struct GameState *game);
 static uint64_t next_rand(uint64_t *state);
 int get_hand_value(Hand *h);
 
-/* 
-Replaced start_engine() with this function to allow UI to run multiple games at once.
-It allocates memory and sets the most general initial values for game state.
+/*
+In-place initialization. Caller owns `game`. No allocation occurs here, so the
+only failure modes are argument validation (reported via the return value).
 */
-struct GameState *engine_create(int player_money, int num_players, uint64_t seed) {
-
-    struct GameState *game = malloc(sizeof(struct GameState));
+bool engine_init(struct GameState *game, int player_money, int num_players, int num_decks, uint64_t seed) {
     if (game == NULL) {
-        return NULL;
+        return false;
     }
-
-    create_deck(&game->cards);
-
-    if (game->cards == NULL) {
-        free(game);
-        return NULL;
+    if (num_players < 1 || num_players > MAX_PLAYERS) {
+        return false;
     }
-
-    //num_players++; // include dealer
-
+    if (num_decks < 1 || num_decks > MAX_DECKS) {
+        return false;
+    }
+ 
     game->curr_player = 0;
     game->num_players = num_players;
-    game->deck_pos = 0;
-    game->phase = PHASE_PAYOUT; // No round played yet; treat as "between hands, ready to deal"
-    game->players = malloc(sizeof(PlayerData) * num_players);
     game->test_mode = false;
-    game->test_size = 0;
-
-    if (game->players == NULL) {
-        free(game->cards);
-        free(game);
-        return NULL;
-    }
-
-    // Set dealer initial card count to zero
+    game->phase = PHASE_PAYOUT; // No round played yet; "between hands, ready to deal"
+ 
+    // Build the shoe (sets deck_size and deck_pos) into the embedded array.
+    build_shoe(game, num_decks);
+ 
+    // Dealer starts empty.
     game->dealer.hand.count = 0;
-    
-    // Set player initial card count to zero and set their initial money
+ 
+    // Players start empty with their initial bankroll.
     for (int i = 0; i < num_players; i++) {
         game->players[i].hand.count = 0;
         game->players[i].money = player_money;
+        game->players[i].current_bet = 0;
     }
-
-    game->rng_state = (seed != 0) ? seed : 1;   // xorshift can't start at 0
-    shuffle(game->cards, DECK_SIZE * NUM_DECKS, &game->rng_state);
-
-    return game;
+ 
+    game->rng_state = (seed != 0) ? seed : 1; // xorshift can't start at 0
+    shuffle(game->cards, game->deck_size, &game->rng_state); // initial deck shuffle
+ 
+    return true;
 }
 
 /*
-Free all memory associated with the game.
+Fill the embedded shoe with `num_decks` ordered decks (card indices 0..51 per
+deck) and reset the read position. The caller shuffles afterward. Operates on
+the in-struct array, so there is no allocation. Bounded by MAX_SHOE because
+num_decks is validated against MAX_DECKS before this is reached.
 */
-void engine_destroy(struct GameState *game) {
-    if (!game) return;
-
-    if (game->cards) free(game->cards);
-    if (game->players) free(game->players);
-
-    free(game);
+static void build_shoe(struct GameState *game, int num_decks) {
+    int n = 0;
+    for (int d = 0; d < num_decks; d++) {
+        for (int c = 0; c < DECK_SIZE; c++) {
+            game->cards[n++] = (uint8_t)c;
+        }
+    }
+    game->deck_size = n;   // num_decks * DECK_SIZE
+    game->deck_pos = 0;
 }
 
 /*
-This function will control who's turn it is.
-It advances through players when required and 
-sets the dealer phase when it is reached.
+Controls whose turn it is. Advances through players and hands off to the
+dealer phase once every player has acted.
 */
 static void advance_turn(struct GameState *game) {
     game->curr_player++;
@@ -86,32 +80,46 @@ static void advance_turn(struct GameState *game) {
 }
 
 /*
-At the end of each hand (when the dealer stands or busts),
-it must be computer who won and they must be paid.
+Settle every player's bet against the dealer once the dealer's hand is final.
+ 
+Natural blackjack (21 on the first two cards) pays 3:2 and is settled before
+ordinary comparisons. A dealer natural beats any non-natural hand, including a
+player's 3+ card 21; two naturals push.
+ 
+NOTE: even-money settlement on a player blackjack vs. a dealer ace belongs here
+once insurance/even-money is implemented. Until then there is no such option.
 */
 static void compute_win(struct GameState *game) {
     int dealer_val = get_hand_value(&game->dealer.hand);
-
+    bool dealer_blackjack = (dealer_val == 21 && game->dealer.hand.count == 2);
+ 
     for (int i = 0; i < game->num_players; i++) {
         PlayerData *p = &game->players[i];
-
+ 
         int player_val = get_hand_value(&p->hand);
-
+        bool player_blackjack = (player_val == 21 && p->hand.count == 2);
+ 
         if (player_val > 21) {
-            p->money -= p->current_bet;
+            p->money -= p->current_bet;                       // player bust
+        }
+        else if (player_blackjack && !dealer_blackjack) {
+            p->money += (p->current_bet * 3) / 2;             // natural pays 3:2
+        }
+        else if (dealer_blackjack && !player_blackjack) {
+            p->money -= p->current_bet;                       // dealer natural beats non-natural
         }
         else if (dealer_val > 21 || player_val > dealer_val) {
-            p->money += p->current_bet;
+            p->money += p->current_bet;                       // ordinary win
         }
         else if (player_val < dealer_val) {
-            p->money -= p->current_bet;
+            p->money -= p->current_bet;                       // ordinary loss
         }
-        // tie -> no change
+        // push (equal totals, or two naturals) -> no change
     }
 }
 
 /*
-Calculates the value of a player's hand.
+Calculates the value of a hand, treating aces as 11 then demoting to 1 as needed.
 Non-static for test cases.
 */
 int get_hand_value(Hand *h) {
@@ -140,59 +148,33 @@ int get_hand_value(Hand *h) {
     return total;
 }
 
-/* 
-Creates a deck of cards.
-Future functionality will be a shoe with multiple decks. 
-*/
-static void create_deck(uint8_t **deck) {
-    *deck = malloc(NUM_DECKS * DECK_SIZE * sizeof(uint8_t));
-
-    // Return early if malloc failed.
-    if (*deck == NULL) {
-        return;
-    }
-
-    for (int i = 0; i < (NUM_DECKS * DECK_SIZE); i++) {
-        (*deck)[i] = (i % DECK_SIZE) & 0xFF;
-    }
-}
-
 /*
-A test function to have deterministic deck.
-Requires a 
+Install a deterministic deck for testing. Copies into the embedded shoe; no
+allocation, no process teardown. Returns false on invalid arguments.
 */
-void engine_set_deck(struct GameState *game, uint8_t *deck, int size) {
-    if (!game) return;
-
-    if (game->cards) {
-        free(game->cards);
+bool engine_set_deck(struct GameState *game, const uint8_t *deck, int size) {
+    if (game == NULL || deck == NULL) {
+        return false;
     }
-
-    game->cards = malloc(sizeof(uint8_t) * size);
-    if (game->cards == NULL) {
-        free(game->players);
-        free(game);
-        fprintf(stderr, "Test deck creation failed.\n");
-        exit(EXIT_FAILURE);
+    if (size <= 0 || size > MAX_SHOE) {
+        return false;
     }
-
+ 
     for (int i = 0; i < size; i++) {
         game->cards[i] = deck[i];
     }
-
+ 
+    game->deck_size = size;
     game->deck_pos = 0;
     game->test_mode = true;
-    game->test_size = size;
+    return true;
 }
 
-/* 
-Shuffle deck into a random order of cards. 
-Used at beginning of engine and whenever a threshold 
-of the number of cards have been played. 
+/*
+Fisher-Yates shuffle. Used at init and whenever the live shoe is exhausted.
 */
 static void shuffle(uint8_t *cards, int num_cards, uint64_t *rng_state) {
-    // Fisher-Yates Algo for deck shuffling
-    if (num_cards > 1) { // This should always be true
+    if (num_cards > 1) { 
         for (int i = num_cards - 1; i > 0; i--) {
             int j = (int)(next_rand(rng_state) % (uint64_t)(i + 1));
             uint8_t temp = cards[i];
@@ -203,8 +185,7 @@ static void shuffle(uint8_t *cards, int num_cards, uint64_t *rng_state) {
 }
 
 /*
-Helper function for shuffling.
-Generates a pseudo-random number for card swaps.
+xorshift64* PRNG. Per-instance state keeps games independent and reproducible.
 */
 static uint64_t next_rand(uint64_t *state) {
     uint64_t x = *state;
@@ -216,65 +197,76 @@ static uint64_t next_rand(uint64_t *state) {
 }
 
 /*
-This should begin a new hand.
-Player will input their initial bet for the hand.
-For simplicity, all players have same initial bet in this current version.
+Draw a card. In a live game the shoe reshuffles when exhausted, so this never
+fails. With a deterministic test deck, exhaustion is reported via the return
+value instead of tearing down the process. Returns false if no card is
+available (or on NULL arguments).
 */
-void deal(struct GameState *game, int initial_bet) {
+bool draw_card(struct GameState *game, uint8_t *out_card) {
+    if (game == NULL || out_card == NULL) {
+        return false;
+    }
+ 
+    if (game->deck_pos >= game->deck_size) {
+        if (game->test_mode) {
+            return false; // deterministic deck exhausted; caller decides what to do
+        }
+        shuffle(game->cards, game->deck_size, &game->rng_state);
+        game->deck_pos = 0;
+    }
+ 
+    *out_card = game->cards[game->deck_pos++];
+    return true;
+}
+
+/*
+Begin a new hand. All players share one initial bet in this version.
+Returns false if the game is not ready to deal, or if the (test) deck cannot
+supply the opening cards; on failure no hand is started.
+*/
+bool deal(struct GameState *game, int initial_bet) {
     if (game == NULL) {
-        return;
+        return false;
     }
-
     if (game->phase != PHASE_PAYOUT) {
-        return;
+        return false;
     }
-
+ 
     game->curr_player = 0;
-
-    // Set dealer hand count to zero
     game->dealer.hand.count = 0;
-
-    // Set up player hand counts to zero and set their bets
+ 
     for (int i = 0; i < game->num_players; i++) {
         game->players[i].hand.count = 0;
         game->players[i].current_bet = initial_bet;
     }
-
-    // Deal 2 cards to all to start blackjack round.
+ 
+    // Two opening cards to each player and the dealer
     for (int r = 0; r < 2; r++) {
         for (int i = 0; i < game->num_players; i++) {
-            add_card(&game->players[i].hand, draw_card(game));
+            uint8_t card;
+            if (!draw_card(game, &card)) {
+                game->phase = PHASE_PAYOUT; // abort cleanly; no hand in progress
+                return false;
+            }
+            add_card(&game->players[i].hand, card);
         }
-        uint8_t card = draw_card(game);
-        add_card(&game->dealer.hand, card);
+        uint8_t dealer_card;
+        if (!draw_card(game, &dealer_card)) {
+            game->phase = PHASE_PAYOUT;
+            return false;
+        }
+        add_card(&game->dealer.hand, dealer_card);
         if (r == 0) {
-            game->dealer.show_card = card;
+            game->dealer.show_card = dealer_card;
         }
     }
+ 
     game->phase = PHASE_PLAYER_TURN;
+    return true;
 }
 
 /*
-Helper function that draws a card from the deck and reshuffles if deck (shoe) is empty.
-*/
-uint8_t draw_card(struct GameState *game) {
-    if (game->test_mode) { // If the game is in test mode we do not want to shuffle, just end game after test.
-        if (game->deck_pos >= game->test_size) {
-            fprintf(stderr, "Test deck out of cards!\n");
-            free(game->players);
-            free(game->cards);
-            free(game);
-            exit(EXIT_FAILURE);
-        }
-    } else if (game->deck_pos >= (DECK_SIZE * NUM_DECKS)) {
-        shuffle(game->cards, DECK_SIZE * NUM_DECKS, &game->rng_state);
-        game->deck_pos = 0;
-    }
-    return game->cards[game->deck_pos++]; // Return the current card and move pointer.
-}
-
-/*
-Helper function to add a card to someone's hand.
+Add a card to a hand, bounded by MAX_HAND.
 */
 void add_card(Hand *h, uint8_t card) {
     if (h->count < MAX_HAND) {
@@ -283,8 +275,8 @@ void add_card(Hand *h, uint8_t card) {
 }
 
 /*
-Allows for user actions to occur if correct game conditions are met.
-Returns whether the action was applied successfully or not.
+Apply a player action for the current player. Returns whether it was applied.
+No partial state mutation occurs on failure.
 */
 bool apply_action(struct GameState *game, Action action) {
     if (game == NULL) {
@@ -293,12 +285,16 @@ bool apply_action(struct GameState *game, Action action) {
     if (game->phase != PHASE_PLAYER_TURN) {
         return false;
     }
-
+ 
     PlayerData *curr = &game->players[game->curr_player];
-
+ 
     switch (action) {
         case ACTION_HIT: {
-            add_card(&curr->hand, draw_card(game));
+            uint8_t card;
+            if (!draw_card(game, &card)) {
+                return false;
+            }
+            add_card(&curr->hand, card);
             if (get_hand_value(&curr->hand) > 21) {
                 advance_turn(game);
             }
@@ -312,8 +308,12 @@ bool apply_action(struct GameState *game, Action action) {
             if (curr->money < curr->current_bet) {
                 return false;
             }
+            uint8_t card;
+            if (!draw_card(game, &card)) {
+                return false; // no bet change unless the draw succeeds
+            }
             curr->current_bet *= 2;
-            add_card(&curr->hand, draw_card(game));
+            add_card(&curr->hand, card);
             advance_turn(game);
             return true;
         }
@@ -323,23 +323,28 @@ bool apply_action(struct GameState *game, Action action) {
 }
 
 /*
-Called by the connected interface to enact the dealer's turn.
+Enact the dealer's deterministic turn (hit to 17), then settle bets.
+Bounded by MAX_HAND draws; stops early if a (test) deck runs out.
 */
 void resolve_dealer(struct GameState *game) {
     if (game == NULL) {
         return;
     }
-
     if (game->phase != PHASE_DEALER_TURN) {
         return;
     }
-
-    // Bounded loop at most MAX_HAND draws
+ 
     for (int i = 0; i < MAX_HAND; i++) {
-        if (get_hand_value(&game->dealer.hand) >= 17) break;
-        add_card(&game->dealer.hand, draw_card(game));
+        if (get_hand_value(&game->dealer.hand) >= 17) {
+            break;
+        }
+        uint8_t card;
+        if (!draw_card(game, &card)) {
+            break; // deterministic deck exhausted; stop drawing
+        }
+        add_card(&game->dealer.hand, card);
     }
-
+ 
     compute_win(game);
     game->phase = PHASE_PAYOUT;
 }
