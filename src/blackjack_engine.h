@@ -12,12 +12,14 @@
 
 // Add near the top, alongside the other typedefs
 
+/* Phases */
 typedef enum {
     PHASE_PLAYER_TURN,   // waiting for apply_action() on curr_player
     PHASE_DEALER_TURN,   // all players done; waiting for resolve_dealer()
     PHASE_PAYOUT,        // initial state or bets settled; ready for next deal()
 } Phase;
 
+/* Player Actions */
 typedef enum {
     ACTION_HIT,
     ACTION_STAND,
@@ -25,17 +27,20 @@ typedef enum {
     // ACTION_SPLIT, ACTION_SURRENDER later
 } Action;
 
+/* Data type for player / dealer current hand and card count. */
 typedef struct Hand {
     uint8_t cards[MAX_HAND];
     int count;
 } Hand;
 
+/* Data type for player data. */
 typedef struct Player {
     Hand hand;
     int money;
     int current_bet;
 } PlayerData;
 
+/* Data type for dealer data. */
 typedef struct Dealer {
     Hand hand;
     uint8_t show_card;

@@ -148,7 +148,7 @@ static void create_deck(uint8_t **deck) {
     *deck = malloc(NUM_DECKS * DECK_SIZE * sizeof(uint8_t));
 
     // Return early if malloc failed.
-    if ((*deck) == NULL) {
+    if (*deck == NULL) {
         return;
     }
 
@@ -322,6 +322,9 @@ bool apply_action(struct GameState *game, Action action) {
     }
 }
 
+/*
+Called by the connected interface to enact the dealer's turn.
+*/
 void resolve_dealer(struct GameState *game) {
     if (game == NULL) {
         return;
