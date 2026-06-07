@@ -1,6 +1,6 @@
 #include "blackjack_engine.h"
 
-// May be removed later, as this will be a user-inputed value.
+// Will be removed later, as this will be a user-inputed value.
 #define NUM_DECKS 1 // For when this program is extended to allow for shoe with multiple decks
 
 static void create_deck(uint8_t **deck);
@@ -28,13 +28,13 @@ struct GameState *engine_create(int player_money, int num_players, uint64_t seed
         return NULL;
     }
 
-    num_players++; // include dealer
+    //num_players++; // include dealer
 
     game->curr_player = 0;
     game->num_players = num_players;
     game->deck_pos = 0;
     game->phase = PHASE_PAYOUT; // No round played yet; treat as "between hands, ready to deal"
-    game->players = malloc(sizeof(struct Character) * num_players);
+    game->players = malloc(sizeof(PlayerData) * num_players);
     game->test_mode = false;
     game->test_size = 0;
 
@@ -44,15 +44,13 @@ struct GameState *engine_create(int player_money, int num_players, uint64_t seed
         return NULL;
     }
 
+    // Set dealer initial card count to zero
+    game->dealer.hand.count = 0;
+    
+    // Set player initial card count to zero and set their initial money
     for (int i = 0; i < num_players; i++) {
-        if (i == num_players - 1) {
-            game->players[i].type = TYPE_D;
-            game->players[i].data.d.hand.count = 0;
-        } else {
-            game->players[i].type = TYPE_P;
-            game->players[i].data.p.hand.count = 0;
-            game->players[i].data.p.money = player_money;
-        }
+        game->players[i].hand.count = 0;
+        game->players[i].money = player_money;
     }
 
     game->rng_state = (seed != 0) ? seed : 1;   // xorshift can't start at 0
@@ -73,64 +71,42 @@ void engine_destroy(struct GameState *game) {
     free(game);
 }
 
-// dealer stands on 17.
 /*
 This function will control who's turn it is.
-It will also act to automate the dealer's turn because 
-dealer always has to stand on 17. Thus, the UI does not 
-need to control dealer's turn.
+It advances through players when required and 
+sets the dealer phase when it is reached.
 */
 static void advance_turn(struct GameState *game) {
     game->curr_player++;
 
-    // Dealer sits at index num_players - 1
-    if (game->curr_player == game->num_players - 1) {
+    // Reaching num_players means it's the dealer's turn
+    if (game->curr_player >= game->num_players) {
         game->phase = PHASE_DEALER_TURN;
-
-        // struct Character *dealer = &game->players[game->curr_player];
-
-        // dealer does not auto-draw if test mode is true.
-        // if (game->test_mode == false) {
-        //     while (get_hand_value(&dealer->data.d.hand) < 17) {
-        //         add_card(&dealer->data.d.hand, draw_card(game));
-        //     }
-        // }
-
-        // computeWin(game);
     }
 }
-
-/* Test function to control dealer draw. */
-// void test_dealer_draw(struct GameState *game) {
-//     struct Character *dealer = &game->players[game->num_players - 1];
-//     while (get_hand_value(&dealer->data.d.hand) < 17) {
-//         add_card(&dealer->data.d.hand, draw_card(game));
-//     }
-// }
 
 /*
 At the end of each hand (when the dealer stands or busts),
 it must be computer who won and they must be paid.
 */
 static void compute_win(struct GameState *game) {
-    struct Character *dealer = &game->players[game->num_players - 1];
-    int dealer_val = get_hand_value(&dealer->data.d.hand);
+    int dealer_val = get_hand_value(&game->dealer.hand);
 
-    for (int i = 0; i < game->num_players - 1; i++) {
-        struct Character *p = &game->players[i];
+    for (int i = 0; i < game->num_players; i++) {
+        PlayerData *p = &game->players[i];
 
-        int player_val = get_hand_value(&p->data.p.hand);
+        int player_val = get_hand_value(&p->hand);
 
         if (player_val > 21) {
-            p->data.p.money -= p->data.p.current_bet;
+            p->money -= p->current_bet;
         }
         else if (dealer_val > 21 || player_val > dealer_val) {
-            p->data.p.money += p->data.p.current_bet;
+            p->money += p->current_bet;
         }
         else if (player_val < dealer_val) {
-            p->data.p.money -= p->data.p.current_bet;
+            p->money -= p->current_bet;
         }
-        // tie → no change
+        // tie -> no change
     }
 }
 
@@ -171,8 +147,13 @@ Future functionality will be a shoe with multiple decks.
 static void create_deck(uint8_t **deck) {
     *deck = malloc(NUM_DECKS * DECK_SIZE * sizeof(uint8_t));
 
-    for (int i = 0; i < DECK_SIZE; i++) {
-        (*deck)[i] = i & 0xFF;
+    // Return early if malloc failed.
+    if ((*deck) == NULL) {
+        return;
+    }
+
+    for (int i = 0; i < (NUM_DECKS * DECK_SIZE); i++) {
+        (*deck)[i] = (i % DECK_SIZE) & 0xFF;
     }
 }
 
@@ -250,29 +231,24 @@ void deal(struct GameState *game, int initial_bet) {
 
     game->curr_player = 0;
 
-    // Set up player bets and hand count.
+    // Set dealer hand count to zero
+    game->dealer.hand.count = 0;
+
+    // Set up player hand counts to zero and set their bets
     for (int i = 0; i < game->num_players; i++) {
-        if (game->players[i].type == TYPE_P) {
-            game->players[i].data.p.hand.count = 0;
-            game->players[i].data.p.current_bet = initial_bet;
-        } else {
-            game->players[i].data.d.hand.count = 0;
-        }
+        game->players[i].hand.count = 0;
+        game->players[i].current_bet = initial_bet;
     }
 
     // Deal 2 cards to all to start blackjack round.
     for (int r = 0; r < 2; r++) {
         for (int i = 0; i < game->num_players; i++) {
-            uint8_t card = draw_card(game);
-
-            if (game->players[i].type == TYPE_P) {
-                add_card(&game->players[i].data.p.hand, card);
-            } else {
-                add_card(&game->players[i].data.d.hand, card);
-                if (r == 0) {
-                    game->players[i].data.d.show_card = card;
-                }
-            }
+            add_card(&game->players[i].hand, draw_card(game));
+        }
+        uint8_t card = draw_card(game);
+        add_card(&game->dealer.hand, card);
+        if (r == 0) {
+            game->dealer.show_card = card;
         }
     }
     game->phase = PHASE_PLAYER_TURN;
@@ -290,7 +266,7 @@ uint8_t draw_card(struct GameState *game) {
             free(game);
             exit(EXIT_FAILURE);
         }
-    } else if (game->deck_pos >= DECK_SIZE * NUM_DECKS) {
+    } else if (game->deck_pos >= (DECK_SIZE * NUM_DECKS)) {
         shuffle(game->cards, DECK_SIZE * NUM_DECKS, &game->rng_state);
         game->deck_pos = 0;
     }
@@ -318,12 +294,12 @@ bool apply_action(struct GameState *game, Action action) {
         return false;
     }
 
-    struct Character *curr = &game->players[game->curr_player];
+    PlayerData *curr = &game->players[game->curr_player];
 
     switch (action) {
         case ACTION_HIT: {
-            add_card(&curr->data.p.hand, draw_card(game));
-            if (get_hand_value(&curr->data.p.hand) > 21) {
+            add_card(&curr->hand, draw_card(game));
+            if (get_hand_value(&curr->hand) > 21) {
                 advance_turn(game);
             }
             return true;
@@ -333,9 +309,11 @@ bool apply_action(struct GameState *game, Action action) {
             return true;
         }
         case ACTION_DOUBLE: {
-            if (curr->data.p.money < curr->data.p.current_bet) return false;
-            curr->data.p.current_bet *= 2;
-            add_card(&curr->data.p.hand, draw_card(game));
+            if (curr->money < curr->current_bet) {
+                return false;
+            }
+            curr->current_bet *= 2;
+            add_card(&curr->hand, draw_card(game));
             advance_turn(game);
             return true;
         }
@@ -353,64 +331,12 @@ void resolve_dealer(struct GameState *game) {
         return;
     }
 
-    struct Character *dealer = &game->players[game->num_players - 1];
-
     // Bounded loop at most MAX_HAND draws
     for (int i = 0; i < MAX_HAND; i++) {
-        if (get_hand_value(&dealer->data.d.hand) >= 17) break;
-        add_card(&dealer->data.d.hand, draw_card(game));
+        if (get_hand_value(&game->dealer.hand) >= 17) break;
+        add_card(&game->dealer.hand, draw_card(game));
     }
 
     compute_win(game);
     game->phase = PHASE_PAYOUT;
 }
-
-/*
-Add next card in deck to current player's hand.
-Change turns if player busted.
-Return the dealt card.
-*/
-// int hit(struct GameState *game) {
-//     struct Character *curr = &game->players[game->curr_player];
-
-//     uint8_t card = draw_card(game);
-
-//     if (curr->type == TYPE_P) {
-//         add_card(&curr->data.p.hand, card);
-
-//         if (get_hand_value(&curr->data.p.hand) > 21) {
-//             changeTurn(game);
-//         }
-//     } else {
-//         add_card(&curr->data.d.hand, card);
-//     }
-
-//     return card;
-// }
-
-// void stand(struct GameState *game) {
-//     changeTurn(game);
-// }
-
-// void double_down(struct GameState *game) {
-//     struct Character *player = &game->players[game->curr_player];
-    
-//     // Check if player has enough money.
-//     if (player->data.p.money < player->data.p.current_bet) return;
-    
-//     // Double bet
-//     player->data.p.current_bet *= 2;
-
-//     // Take one card
-//     add_card(&player->data.p.hand, draw_card(game));
-
-//     changeTurn(game);
-// }
-
-// void buy_insurance() {
-
-// }
-
-// void even_money() {
-
-// }

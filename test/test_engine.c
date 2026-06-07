@@ -5,7 +5,7 @@ void test_engine_init() {
     struct GameState *game = engine_create(1000, 1, 1);
 
     ASSERT_TRUE(game != NULL);
-    ASSERT_EQ(game->num_players, 2); // player + dealer
+    ASSERT_EQ(game->num_players, 1); // player
 
     engine_destroy(game);
 
@@ -17,11 +17,11 @@ void test_hit_increases_hand() {
 
     deal(game, 100);
 
-    int before = game->players[0].data.p.hand.count;
+    int before = game->players[0].hand.count;
 
     apply_action(game, ACTION_HIT);
 
-    int after = game->players[0].data.p.hand.count;
+    int after = game->players[0].hand.count;
 
     ASSERT_TRUE(after == before + 1);
 
@@ -35,11 +35,11 @@ void test_double_down() {
 
     deal(game, 100);
 
-    int before = game->players[0].data.p.current_bet;
+    int before = game->players[0].current_bet;
 
     apply_action(game, ACTION_DOUBLE);
 
-    int after = game->players[0].data.p.current_bet;
+    int after = game->players[0].current_bet;
 
     ASSERT_EQ(after, before * 2);
 
@@ -69,7 +69,7 @@ void test_player_bust() {
     apply_action(game, ACTION_HIT);  // bust -> phase advances to dealer
     //printf("Made it past hit.\n");
 
-    int val = get_hand_value(&game->players[0].data.p.hand);
+    int val = get_hand_value(&game->players[0].hand);
     //printf("Player hand value: %d\n", val);
 
     ASSERT_TRUE(val > 21);
@@ -99,7 +99,7 @@ void test_dealer_hits_until_17() {
 
     resolve_dealer(game); // Dealer should draw until 17
 
-    int dealer_val = get_hand_value(&game->players[1].data.d.hand);
+    int dealer_val = get_hand_value(&game->dealer.hand);
 
     ASSERT_TRUE(dealer_val == 20);
 

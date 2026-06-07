@@ -34,7 +34,6 @@ typedef struct Player {
     Hand hand;
     int money;
     int current_bet;
-    //bool is_active;   // for bust/stand
 } PlayerData;
 
 typedef struct Dealer {
@@ -42,28 +41,16 @@ typedef struct Dealer {
     uint8_t show_card;
 } DealerData;
 
-enum Type {
-    TYPE_P,
-    TYPE_D
-};
-
-struct Character {
-    enum Type type;
-    union {
-        PlayerData p;
-        DealerData d;
-    } data;
-};
-
 /*
 All changes to player states will be controlled through the game state.
 */
 struct GameState {
     int curr_player;            // Who's turn it currently is at the table
-    int num_players;            // How many players are at the table (including dealer)
+    int num_players;            // How many players are at the table (NOT including dealer)
     int deck_pos;               // The position in the deck
     uint8_t *cards;             // The deck of cards
-    struct Character *players;  // Pointers to the players
+    PlayerData *players;        // length = num_players
+    DealerData dealer;          // Embedded singleton, one for each game instance
     bool test_mode;             // Makes sure a deterministic test ends after cards run out
     int test_size;              // The number of cards being tested
     uint64_t rng_state;         // per-instance RNG; must be non-zero
@@ -78,9 +65,6 @@ void engine_destroy(struct GameState *game);
 void deal(struct GameState *game, int initial_bet);
 bool apply_action(struct GameState *game, Action action);
 void resolve_dealer(struct GameState *game);
-//int hit(struct GameState *game);
-//void stand(struct GameState *game);
-//void double_down(struct GameState *game);
 
 // Utilities (keep for testing)
 uint8_t draw_card(struct GameState *game);
