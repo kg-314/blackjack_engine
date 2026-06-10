@@ -85,7 +85,7 @@ void resolve_dealer(struct GameState *game);
 // // Utilities (also used by tests)
 bool draw_card(struct GameState *game, uint8_t *out_card); // false if no card available
 void add_card(Hand *h, uint8_t card);
-int get_hand_value(Hand *h);
+int get_hand_value(const Hand *h);
 bool engine_set_deck(struct GameState *game, const uint8_t *deck, int size); // false on bad args
 
 #endif // BLACKJACK_ENGINE_H

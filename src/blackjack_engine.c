@@ -8,7 +8,6 @@ static void shuffle(uint8_t *cards, int num_cards, uint64_t *rng_state);
 static void advance_turn(struct GameState *game);
 static void compute_win(struct GameState *game);
 static uint64_t next_rand(uint64_t *state);
-int get_hand_value(Hand *h);
 
 /*
 In-place initialization. Caller owns `game`. No allocation occurs here, so the
@@ -122,7 +121,7 @@ static void compute_win(struct GameState *game) {
 Calculates the value of a hand, treating aces as 11 then demoting to 1 as needed.
 Non-static for test cases.
 */
-int get_hand_value(Hand *h) {
+int get_hand_value(const Hand *h) {
     int total = 0;
     int aces = 0;
 

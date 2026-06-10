@@ -1,15 +1,23 @@
 # blackjack_engine
 
-A blackjack game engine written in C. The engine handles all game logic — dealing, hitting, standing, doubling down, dealer auto-play, win resolution — and exposes a clean API so that any front-end (TUI, GUI, web bridge, simulation harness) can drive the game without knowing anything about the internals.
+A blackjack game engine written in C, built to power large-scale strategy simulations — measuring how different playing strategies affect the house edge — as well as interactive front-ends. The engine handles all game logic: dealing, player actions, dealer auto-play, and bet resolution (including 3:2 payouts on naturals). It exposes a small, phase-gated API so any front-end (TUI, simulation harness, GUI, web bridge) can drive a game without knowing anything about the internals.
 
 The project is split into two layers:
 
-- **The engine** (`src/blackjack_engine.{c,h}`) — pure game logic, no I/O. Multiple independent games can run side-by-side because all state lives in a `GameState` struct that the caller creates and destroys.
-- **A front-end** (`src/blackjackTUI.c`) — a terminal interface that talks to the engine. This is a work in progress.
+- **The engine** (`src/blackjack_engine.{c,h}`) — pure game logic, no I/O, no heap allocation. All state lives in a self-contained `GameState` struct owned by the caller, so many independent games can run side by side (e.g. one per simulation worker thread).
+- **Front-ends** — a terminal interface (`src/blackjackTUI.c`, early skeleton) and a planned simulation harness for running millions of hands against scripted strategies.
 
-## Why a separate engine?
+## Design principles
 
-Keeping game logic isolated from presentation means the same engine can power a CLI, a graphical client, an automated card-counting simulator, or a network service — without re-implementing the rules each time. It also makes the rules easy to test in isolation, which is what the `test/` directory does.
+The engine follows a few rules inspired by safety-critical C guidelines (NASA's Power of 10):
+
+- **No dynamic allocation.** `GameState` embeds the card shoe and player array directly. The caller owns the storage — stack, heap, arena, or a reused per-worker slot — and the engine only initializes and mutates it in place. There is no `malloc`, `free`, or `exit()` anywhere in the engine.
+- **Bounded everything.** All loops have fixed upper bounds (`MAX_HAND`, `MAX_SHOE`, `MAX_PLAYERS`); hand and shoe arrays are fixed-size.
+- **Failure by return value.** Fallible operations (`engine_init`, `deal`, `apply_action`, `draw_card`, `engine_set_deck`) return `bool` and never tear down the process. A failed call performs no partial state mutation.
+- **Phase-gated entry points.** A `Phase` enum (`PHASE_PLAYER_TURN`, `PHASE_DEALER_TURN`, `PHASE_PAYOUT`) guards every entry point, so a front-end can't take an action in the wrong state — illegal calls are rejected rather than corrupting the game.
+- **Single entry point for player actions.** All player decisions go through `apply_action()` with an `Action` enum, keeping front-ends simple and making the strategy interface for simulations uniform.
+
+ISO C compliant; the only dependencies are a C compiler and `make`. The per-instance xorshift64\* PRNG makes every game independently seedable and fully reproducible.
 
 ## Project layout
 
@@ -18,7 +26,7 @@ Keeping game logic isolated from presentation means the same engine can power a 
 ├── src/
 │   ├── blackjack_engine.c   # Engine implementation
 │   ├── blackjack_engine.h   # Public engine API
-│   └── blackjackTUI.c       # Terminal front-end (in progress)
+│   └── blackjackTUI.c       # Terminal front-end (early skeleton)
 ├── test/
 │   ├── test_hand.c          # Hand-scoring unit tests
 │   ├── test_engine.c        # End-to-end engine tests with deterministic decks
@@ -29,58 +37,62 @@ Keeping game logic isolated from presentation means the same engine can power a 
 
 ## Building and running the tests
 
-The engine has no external dependencies — just a C compiler and `make`.
-
 ```bash
 make           # builds and runs both test binaries
 make clean     # removes test binaries
 ```
 
-`make test` produces two executables in `test/` and runs them. A successful run ends with `All hand tests passed.` and `All engine tests passed.`.
+`make` produces two executables in `test/` and runs them. A successful run ends with `All hand tests passed.` and `All engine tests passed.`.
 
 ## How the engine works
 
 ### Card encoding
 
-Cards are stored as `uint8_t` values from 0 to 51. The rank is derived as `(card % 13) + 1`, where 1 is an Ace, 2–10 are pip cards, and 11/12/13 collapse to a value of 10 (J/Q/K). Suit is encoded implicitly in the division by 13, but the engine doesn't use suit for any game logic — it only matters if a front-end wants to display the card.
+Cards are `uint8_t` values from 0 to 51. The rank is `(card % 13) + 1`, where 1 is an Ace, 2–10 are pip cards, and J/Q/K collapse to a value of 10. Suit is implicit in the encoding but unused by game logic — it only matters if a front-end wants to display the card.
 
 ### Hand scoring
 
-`get_hand_value()` totals a hand using the standard blackjack rule for aces: each ace starts as 11, and any ace is downgraded to 1 as long as the hand is busted and a downgrade is still possible. This handles soft hands correctly (e.g. A + K = 21, A + A + A = 13).
+`get_hand_value()` totals a hand with the standard ace rule: each ace starts at 11 and is demoted to 1 while the hand is busted and a demotion is still possible. This handles soft hands correctly (A + K = 21, A + A + A = 13).
 
 ### Game flow
 
 A typical round, from a front-end's perspective:
 
-1. `engine_create(player_money, num_players)` — allocate a game, shuffle a fresh deck, set up `num_players` players plus a dealer.
-2. `deal(game, initial_bet)` — start a new round. Each player and the dealer get two cards; the dealer's first card is recorded as their up-card.
-3. The front-end calls `hit()`, `stand()`, or `double_down()` for the current player. The engine advances `curr_player` automatically when a player busts, stands, or doubles.
-4. Once all human players have acted, the engine takes over the dealer turn: it draws until the dealer hits 17 or higher, then resolves all bets (`computeWin()` internally). Payouts are settled directly on each player's `money` field — push on ties, win or lose the current bet otherwise.
-5. Call `deal()` again to start the next round, or `engine_destroy(game)` to release memory.
+1. `engine_init(&game, player_money, num_players, num_decks, seed)` — initialize caller-owned storage in place: build a shoe of 1–8 decks, seed the per-instance RNG, shuffle, and set up `num_players` players plus the dealer. The game starts in `PHASE_PAYOUT` ("between hands, ready to deal").
+2. `deal(&game, initial_bet)` — start a round. Each player and the dealer receive two cards; the dealer's first card is recorded as the up-card. The game enters `PHASE_PLAYER_TURN`.
+3. The front-end calls `apply_action(&game, action)` for the current player with `ACTION_HIT`, `ACTION_STAND`, or `ACTION_DOUBLE`. The engine advances `curr_player` automatically when a player busts, stands, or doubles; once every player has acted, the phase moves to `PHASE_DEALER_TURN`.
+4. The front-end calls `resolve_dealer(&game)` — the dealer draws to 17 or higher, then all bets are settled directly on each player's `money` field. The game returns to `PHASE_PAYOUT`.
+5. Call `deal()` again for the next round. There is nothing to destroy — the caller simply stops using (or reuses) the `GameState`.
 
-The dealer's turn is intentionally driven by the engine rather than the front-end, since the rule "dealer stands on 17" is fixed and removing it from the UI's responsibility keeps front-ends simple.
+Splitting player choice (`apply_action`) from the dealer's fixed, deterministic play (`resolve_dealer`) keeps the two concerns separate: front-ends decide *when* the dealer turn happens, but never *how* it plays out.
+
+### Payout rules
+
+`compute_win()` (internal, run by `resolve_dealer`) settles bets in this order:
+
+- A player bust loses the bet, regardless of the dealer's hand.
+- A **natural blackjack** — 21 on exactly the first two cards — pays **3:2**. A dealer natural beats any non-natural hand, including a multi-card 21; two naturals push.
+- Otherwise: dealer bust or a higher player total wins even money, a lower total loses, equal totals push.
 
 ### Public API
 
 From `blackjack_engine.h`:
 
 ```c
-// Lifecycle
-struct GameState *engine_create(int player_money, int num_players);
-void engine_destroy(struct GameState *game);
+// Lifecycle: in-place init on caller-owned storage; no allocation, nothing to destroy
+bool engine_init(struct GameState *game, int player_money, int num_players,
+                 int num_decks, uint64_t seed);
 
-// Game actions
-void deal(struct GameState *game, int initial_bet);
-int  hit(struct GameState *game);          // returns the drawn card
-void stand(struct GameState *game);
-void double_down(struct GameState *game);
+// Game actions (phase-gated)
+bool deal(struct GameState *game, int initial_bet);        // false if a hand could not start
+bool apply_action(struct GameState *game, Action action);  // false if the action was illegal
+void resolve_dealer(struct GameState *game);               // dealer plays out; bets settle
 
 // Utilities (also used by the test suite)
-uint8_t draw_card(struct GameState *game);
-void    add_card(Hand *h, uint8_t card);
-int     get_hand_value(Hand *h);
-void    engine_set_deck(struct GameState *game, uint8_t *deck, int size);
-void    test_dealer_draw(struct GameState *game);
+bool draw_card(struct GameState *game, uint8_t *out_card); // false if no card available
+void add_card(Hand *h, uint8_t card);
+int  get_hand_value(Hand *h);
+bool engine_set_deck(struct GameState *game, const uint8_t *deck, int size);
 ```
 
 ## Testing strategy
@@ -88,15 +100,17 @@ void    test_dealer_draw(struct GameState *game);
 The test suite uses two approaches:
 
 - **Hand tests** (`test_hand.c`) exercise `get_hand_value()` directly with crafted hands — simple totals, soft-ace adjustment, and multiple aces.
-- **Engine tests** (`test_engine.c`) use `engine_set_deck()` to swap the shuffled deck for a deterministic one. This lets tests assert exact outcomes — that a player busts on a specific hit, or that the dealer ends on exactly 20 — without flakiness from randomness. `test_mode` also disables the dealer's automatic draw at end-of-turn so the test can call `test_dealer_draw()` itself and avoid the engine drawing past the end of the rigged deck.
+- **Engine tests** (`test_engine.c`) use `engine_set_deck()` to install a deterministic deck. In this test mode the engine reports deck exhaustion through `draw_card()`'s return value instead of reshuffling, so tests can assert exact outcomes — a player busting on a specific hit, the dealer landing on an exact total, or a natural paying out at precisely 3:2 — with zero flakiness.
 
-The `test_utils.h` header provides three minimal macros — `ASSERT_EQ`, `ASSERT_TRUE`, `TEST_PASS` — that print a clear pass/fail line and exit on the first failure.
+`test_utils.h` provides three minimal macros — `ASSERT_EQ`, `ASSERT_TRUE`, `TEST_PASS` — that print a clear pass/fail line and exit on the first failure.
 
-## Current limitations and roadmap
+## Roadmap
 
-The engine currently supports a single deck and a single seat per player. The following are scaffolded but not yet implemented:
+The engine core (deal, hit/stand/double, dealer resolution, natural payouts, multi-deck shoes) is complete and tested. Next steps, in order:
 
-- **Insurance** (`buy_insurance`) and **even money** (`even_money`) — stub functions only.
-- **Split** — not yet present.
-- **Multi-deck shoe** — `NUM_DECKS` is defined but `create_deck` fills a single 52-card deck; extending this is a planned change.
-- **TUI** — `blackjackTUI.c` has a REPL loop and prompt but `eval()` is empty, so commands aren't parsed yet. The intended interface is `start <INITIAL_MONEY>` followed by per-turn commands.
+1. **Simulation harness** (`sim/`) — a single-threaded runner that plays scripted strategies (starting with an always-stand baseline and full basic strategy) over millions of hands and reports the measured house edge against textbook values.
+2. **Multithreading** — `pthread` fan-out across workers, each with an independent `GameState` and a per-worker seed derived from a master seed, so large runs stay fully reproducible.
+3. **Split support** — `ACTION_SPLIT` is declared (commented out) in the `Action` enum; the engine change is contained and intentionally deferred until the harness exists to validate it.
+4. **TUI** — `blackjackTUI.c` currently has a REPL loop and prompt, but command parsing isn't implemented yet. Completing it is deferred until the game logic (including split) is final.
+
+Insurance, even money, and surrender are further out; `compute_win()` is structured so even-money settlement slots in cleanly when insurance is added.
