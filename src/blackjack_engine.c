@@ -1,8 +1,5 @@
 #include "blackjack_engine.h"
 
-// Will be removed later, as this will be a user-inputed value.
-#define NUM_DECKS 1 // For when this program is extended to allow for shoe with multiple decks
-
 static void build_shoe(struct GameState *game, int num_decks);
 static void shuffle(uint8_t *cards, int num_cards, uint64_t *rng_state);
 static void advance_turn(struct GameState *game);
